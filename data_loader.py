@@ -1,3 +1,5 @@
+from typing import List, Dict
+
 import pandas
 import requests
 import json
@@ -33,10 +35,12 @@ class DataLoader(ABC):
 
 
 class JobDescriptionDetail:
-    def get_key_skills(self):
+    def get_key_skills(self) -> Dict:
         with open(self.file_name, encoding='utf-8') as soubor:
             obsah = soubor.read()
         html = HTML(html=obsah)
+        skills = None
+        level = {"junior": 0, "medior": 0, "senior": 0}
         for el_div in html.find('div[class="mb-4"]'):
             el_div_list = el_div.find("dt")
             if len(el_div_list) == 0:
@@ -46,9 +50,16 @@ class JobDescriptionDetail:
                 skills = el_div.find("dd")[0].text
                 skills = skills.split(",")
                 skills = [x.strip() for x in skills]
-                return skills
-        print(f"No skills found for {self.record_id}")
-        return []
+            if el_dt.text.strip() == "Požadovaná zkušenost":
+                level_text = el_div.find("dd")[0].text
+                if "juniory" in level_text:
+                    level["junior"] = 1
+                if "senior" in level_text:
+                    level["senior"] = 1
+                if "medior" in level_text or ("junior" in level_text and "senior" in level_text):
+                    level["medior"] = 1
+        # print(f"No skills found for {self.record_id}")
+        return {"skills": skills, "level": level}
 
     def __init__(self, record_id: int):
         self.record_id = record_id
@@ -90,16 +101,16 @@ class StartUpJobsDataLoader(DataLoader):
         skill_column = []
         index_column = []
         skill_column_flat = []
-        for index, _ in self.data.iterrows():
+        for index, row in self.data.iterrows():
             job_description_detail = JobDescriptionDetail(index)
             skill_row = job_description_detail.get_key_skills()
+            skill_column_flat.append(skill_row)
             if len(skill_row) > 0:
                 skill_column.append(job_description_detail.get_key_skills())
                 index_column.append(index)
-                skill_column_flat += skill_row
         skill_series = pandas.Series(skill_column, index=index_column)
         self.data["skills"] = skill_series
-        return Counter(skill_column_flat)
+        return pandas.DataFrame(skill_column_flat)
 
     def download_record_detail(self, record_id):
         url = self.data.loc[record_id, "url"]
