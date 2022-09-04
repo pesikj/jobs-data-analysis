@@ -40,6 +40,8 @@ class JobDescriptionDetail:
             obsah = soubor.read()
         html = HTML(html=obsah)
         skills = None
+        technologies = None
+        benefits = None
         level = {"junior": 0, "medior": 0, "senior": 0}
         for el_div in html.find('div[class="mb-4"]'):
             el_div_list = el_div.find("dt")
@@ -58,8 +60,14 @@ class JobDescriptionDetail:
                     level["senior"] = 1
                 if "medior" in level_text or ("junior" in level_text and "senior" in level_text):
                     level["medior"] = 1
+            if el_dt.text.strip() == "Technologie používané na pozici":
+                technologies = el_div.find("dd")[0].text
+                technologies = technologies.split(",")
+                technologies = [x.strip() for x in technologies]
+            if el_dt.text.strip() == "Firemní benefity":
+                benefits = [el_img_ben.attrs["alt"] for el_img_ben in el_div.find("dd")[0].find("img")]
         # print(f"No skills found for {self.record_id}")
-        return {"skills": skills, "level": level}
+        return {"skills": skills, "level": level, "technologies": technologies, "benefits": benefits}
 
     def __init__(self, record_id: int):
         self.record_id = record_id
