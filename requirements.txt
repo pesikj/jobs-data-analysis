@@ -3,3 +3,4 @@ matplotlib
 requests
 requests-html
 openpyxl
+wordcloud

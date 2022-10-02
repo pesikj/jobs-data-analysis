@@ -30,10 +30,6 @@ class DataLoader(ABC):
     def download_data_in_range(self, start, end, pause=10):
         pass
 
-    @abstractmethod
-    def download_record_detail(self, record_id):
-        pass
-
 
 class JobDescriptionDetail:
     def get_details(self) -> Dict:
@@ -47,7 +43,42 @@ class JobDescriptionDetail:
         employment_types = []
         employment_form = []
         full_remote = False
+        salary = None
         level = {"junior": 0, "medior": 0, "senior": 0}
+        amount_re = re.compile(r"\d{3,6}-\d{3,6}")
+        amount_re_val = re.compile(r"\d{3,6}")
+        for el_div in html.find('div[class="flex pr-6 items-center"]'):
+            if len(el_div.find('img[src="/build/web/images/icons/salary.svg"]')) > 0:
+                text = el_div.find('span[class="pl-2"]')[0].text
+                text = text.replace(" ", "").replace(" ", "")
+                results = amount_re.findall(text)
+                if len(results) == 1:
+                    results_numbers = amount_re_val.findall(text)
+                    results_numbers = [int(str(x).replace(" ", "")) for x in results_numbers]
+                    salary = {"min": results_numbers[0], "max": results_numbers[1], "set_as": "interval"}
+                    if "Kč/měsíc" in text:
+                        salary["unit"] = "CZK/month"
+                        break
+                    elif "Kč/hodina" in text:
+                        salary["unit"] = "CZK/hour"
+                        break
+                results = amount_re_val.findall(text)
+                if len(results) == 1:
+                    results_numbers = [int(str(x).replace(" ", "").replace(" ", "")) for x in results]
+                    salary = {"val": results_numbers[0], "set_as": "value"}
+                    if "Kč/měsíc" in text.replace(" ", "").replace(" ", ""):
+                        salary["unit"] = "CZK/month"
+                        break
+                    elif "Kč/hodina" in text.replace(" ", "").replace(" ", ""):
+                        salary["unit"] = "CZK/hour"
+                        break
+                    elif "€" not in text:
+                        if results_numbers[0] > 1000:
+                            salary["unit"] = "CZK/month"
+                        else:
+                            salary["unit"] = "CZK/hour"
+                        break
+                print(text, self.record_id)
         for el_div in html.find('div[class="mb-4"]'):
             if not full_remote:
                 for dd_el in el_div.find("dd"):
@@ -88,13 +119,27 @@ class JobDescriptionDetail:
                 employment_form = el_div.find("dd")[0].text.split(",")
                 employment_form = [x.strip() for x in employment_form]
         # print(f"No skills found for {self.record_id}")
-        return {"skills": skills, "level": level, "technologies": technologies, "benefits": benefits, "locality": locality, "employment_types": employment_types, "employment_form": employment_form, "full_remote": full_remote}
+        return {"skills": skills, "level": level, "technologies": technologies, "benefits": benefits, "locality": locality, "employment_types": employment_types, "employment_form": employment_form, "full_remote": full_remote, "salary": salary}
 
-    def __init__(self, record_id):
+    def download_record_detail(self):
+        record_id = self.record_id
+        url = self.record_url
+        response = requests.get(url)
+        target_directory = os.path.join(self.record_detail_folder, str(record_id))
+        if os.path.exists(target_directory):
+            shutil.rmtree(target_directory)
+        os.mkdir(target_directory)
+        with open(os.path.join(target_directory, f"{record_id}.html"), "w", encoding="utf-8") as f:
+            f.write(response.text)
+
+    def __init__(self, record_id, record_url):
         self.record_id = record_id
+        self.record_url = record_url
         self.record_detail_folder = "record_details/startup_jobs"
         target_directory = os.path.join(self.record_detail_folder, str(record_id))
         self.file_name = os.path.join(target_directory, f"{record_id}.html")
+        if not os.path.exists(self.file_name):
+            self.download_record_detail()
 
 
 class StartUpJobsDataLoader(DataLoader):
@@ -134,15 +179,21 @@ class StartUpJobsDataLoader(DataLoader):
         employment_type_column = []
         employment_form_column = []
         full_remote_column = []
+        technology_column = []
+        level_column = []
+        salary_column = []
         counter = 0
         for index, row in self.data.iterrows():
-            job_description_detail = JobDescriptionDetail(index)
+            job_description_detail = JobDescriptionDetail(index, row["url"])
             skill_row = job_description_detail.get_details()
             skill_column.append(skill_row["skills"])
             locality_column.append(skill_row["locality"])
             employment_type_column.append(skill_row["employment_types"])
             employment_form_column.append(skill_row["employment_form"])
             full_remote_column.append(skill_row["full_remote"])
+            technology_column.append(skill_row["technologies"])
+            level_column.append(skill_row["level"])
+            salary_column.append(skill_row["salary"])
             index_column.append(index)
             if n and n <= counter:
                 break
@@ -152,22 +203,18 @@ class StartUpJobsDataLoader(DataLoader):
         employment_type_series = pandas.Series(employment_type_column, index=index_column)
         employment_form_series = pandas.Series(employment_form_column, index=index_column)
         full_remote_series = pandas.Series(full_remote_column, index=index_column)
-        self.data["details"] = skill_series
+        technology_series = pandas.Series(technology_column, index=index_column)
+        level_series = pandas.Series(level_column, index=index_column)
+        salary_series = pandas.Series(salary_column, index=index_column)
+        self.data["skills"] = skill_series
         self.data["locality"] = locality_series
         self.data["employment_type"] = employment_type_series
         self.data["employment_form"] = employment_form_series
         self.data["full_remote"] = full_remote_series
+        self.data["technologies"] = technology_series
+        self.data["level"] = level_series
+        self.data["salary"] = salary_series
         return pandas.DataFrame(skill_column_flat)
-
-    def download_record_detail(self, record_id):
-        url = self.data.loc[record_id, "url"]
-        response = requests.get(url)
-        target_directory = os.path.join(self.record_detail_folder, str(record_id))
-        if os.path.exists(target_directory):
-            shutil.rmtree(target_directory)
-        os.mkdir(target_directory)
-        with open(os.path.join(target_directory, f"{record_id}.html"), "w", encoding="utf-8") as f:
-            f.write(response.text)
 
     def download_details_all_records(self):
         for index, _ in self.data.iterrows():
